@@ -1,0 +1,8 @@
+[project]
+name = "hw2"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "kafka-python>=3.0.11",
+    "loguru>=0.7.3",
+]
