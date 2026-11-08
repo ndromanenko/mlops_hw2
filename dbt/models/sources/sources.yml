@@ -1,0 +1,51 @@
+version: 2
+
+sources:
+  - name: transactions_db
+    description: Датасет из домашки по ClickHouse, таблица лежит в базе `optimized`
+    schema: optimized
+    tables:
+      - name: transactions
+        description: Данные о транзакциях и признаком фрода
+        columns:
+          - name: transaction_time
+            description: Время транзакции
+            data_tests:
+              - not_null
+          - name: merch
+            description: Мерчант
+            data_tests:
+              - not_null
+          - name: cat_id
+            description: Категория (14 значений)
+            data_tests:
+              - not_null
+          - name: amount
+            description: Сумма
+            data_tests:
+              - not_null
+          - name: name_1
+            description: Имя клиента
+          - name: name_2
+            description: Фамилия клиента
+          - name: gender
+            description: Пол (M/F)
+          - name: us_state
+            description: Штат США (50 штатов)
+            data_tests:
+              - not_null
+          - name: lat
+            description: Координаты клиента, широта
+          - name: lon
+            description: Координаты клиента, долгота
+          - name: merchant_lat
+            description: Координаты мерчанта, широта
+          - name: merchant_lon
+            description: Координаты мерчанта, долгота
+          - name: target
+            description: Признак фрода (0/1)
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: [0, 1]
+                    quote: false

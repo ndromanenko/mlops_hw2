@@ -1,0 +1,311 @@
+version: 2
+
+models:
+  - name: mart_daily_state_metrics
+    description: |
+      Дневные метрики по штатам.
+
+      - Агрегация транзакций по дате и штату
+      - Метрики: количество транзакций, сумма, средний чек, P95, доля крупных транзакций
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [transaction_date, state_code]
+    columns:
+      - name: transaction_date
+        description: Дата транзакций
+        data_tests:
+          - not_null
+      - name: state_code
+        description: Код штата
+        data_tests:
+          - not_null
+      - name: transactions_count
+        description: Количество транзакций
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: total_amount
+        description: Сумма транзакций
+      - name: avg_amount
+        description: Средний чек
+      - name: p95_amount
+        description: 95-й перцентиль суммы
+      - name: large_transactions_share
+        description: Доля крупных транзакций в процентах
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 100
+
+  - name: mart_fraud_by_category
+    description: |
+      Анализ фрода по категориям.
+
+      - Выявление категорий с наибольшим уровнем мошенничества
+      - Метрики: общее число транзакций, число фродов, fraud_rate (%), суммы
+    columns:
+      - name: category
+        description: Категория покупки
+        data_tests:
+          - unique
+          - not_null
+      - name: total_transactions
+        description: Всего транзакций
+      - name: fraud_transactions
+        description: Число фродовых транзакций
+      - name: fraud_rate
+        description: Доля фродовых транзакций в процентах
+        data_tests:
+          - not_null
+      - name: total_amount
+        description: Сумма всех транзакций
+      - name: fraud_amount
+        description: Сумма фродовых транзакций
+
+  - name: mart_fraud_by_state
+    description: |
+      Географический анализ фрода.
+
+      - Распределение фрода по штатам США
+      - Метрики: fraud_rate, уникальные клиенты/мерчанты, суммы
+    columns:
+      - name: state_code
+        description: Код штата
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('states')
+                field: state_code
+      - name: total_transactions
+        description: Всего транзакций
+      - name: fraud_transactions
+        description: Число фродовых транзакций
+      - name: fraud_rate
+        description: Доля фродовых транзакций в процентах
+      - name: unique_customers
+        description: Уникальные клиенты
+      - name: unique_merchants
+        description: Уникальные мерчанты
+      - name: total_amount
+        description: Сумма всех транзакций
+      - name: fraud_amount
+        description: Сумма фродовых транзакций
+
+  - name: mart_customer_risk_profile
+    description: |
+      Профиль риска клиентов.
+
+      - Сегментация клиентов по уровню риска (HIGH/MEDIUM/LOW)
+      - История транзакций, fraud_rate на клиента, средний чек
+    columns:
+      - name: customer_id
+        description: Суррогатный ключ клиента
+        data_tests:
+          - unique
+          - not_null
+      - name: total_transactions
+        description: Всего транзакций
+      - name: fraud_transactions
+        description: Число фродовых транзакций
+      - name: avg_amount
+        description: Средний чек
+      - name: first_transaction_at
+        description: Первая транзакция клиента
+      - name: last_transaction_at
+        description: Последняя транзакция клиента
+      - name: fraud_rate
+        description: Доля фродовых транзакций клиента в процентах
+      - name: risk_level
+        description: Уровень риска по fraud_rate клиента, HIGH от 5%, MEDIUM от 1%, иначе LOW
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [HIGH, MEDIUM, LOW]
+
+  - name: mart_hourly_fraud_pattern
+    description: |
+      Временные паттерны фрода.
+
+      - Анализ по дням недели и часам
+      - Выявление временных окон с повышенным риском
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [day_of_week, transaction_hour]
+      - dbt_expectations.expect_table_row_count_to_equal:
+          arguments:
+            value: 168
+    columns:
+      - name: day_of_week
+        description: День недели по ISO, понедельник равен 1
+      - name: transaction_hour
+        description: Час транзакции
+      - name: total_transactions
+        description: Всего транзакций
+      - name: fraud_transactions
+        description: Число фродовых транзакций
+      - name: fraud_rate
+        description: Доля фродовых транзакций в процентах
+      - name: is_high_risk_window
+        description: 1, если fraud_rate окна минимум в 2 раза выше общего по всем транзакциям
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false
+
+  - name: mart_merchant_analytics
+    description: |
+      Аналитика по мерчантам.
+
+      - Метрики по каждому мерчанту: оборот, fraud_rate, флаг подозрительности
+    columns:
+      - name: merchant_name
+        description: Мерчант
+        data_tests:
+          - unique
+          - not_null
+      - name: total_transactions
+        description: Всего транзакций
+      - name: fraud_transactions
+        description: Число фродовых транзакций
+      - name: fraud_rate
+        description: Доля фродовых транзакций в процентах
+      - name: total_amount
+        description: Оборот мерчанта
+      - name: is_suspicious
+        description: 1, если у мерчанта от 100 транзакций и fraud_rate минимум в 2 раза выше общего
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false
+
+unit_tests:
+  - name: test_daily_state_metrics_aggregates
+    description: Проверяет сумму, средний чек, P95 и долю крупных транзакций.
+    model: mart_daily_state_metrics
+    given:
+      - input: ref('stg_transactions')
+        rows:
+          - {transaction_date: "2019-03-15", state_code: TX, amount_usd: 15.0, is_large: 0}
+          - {transaction_date: "2019-03-15", state_code: TX, amount_usd: 25.0, is_large: 0}
+          - {transaction_date: "2019-03-15", state_code: TX, amount_usd: 60.0, is_large: 0}
+          - {transaction_date: "2019-03-15", state_code: TX, amount_usd: 250.0, is_large: 1}
+          - {transaction_date: "2019-03-15", state_code: TX, amount_usd: 300.0, is_large: 1}
+    expect:
+      rows:
+        - {transaction_date: "2019-03-15", state_code: TX, transactions_count: 5, total_amount: 650.0, avg_amount: 130.0, p95_amount: 300.0, large_transactions_share: 40.0}
+
+  - name: test_fraud_by_category_rates
+    description: Проверяет fraud_rate и суммы по категориям.
+    model: mart_fraud_by_category
+    given:
+      - input: ref('stg_transactions')
+        rows:
+          - {category: food_dining, amount_usd: 40.0, is_fraud: 0}
+          - {category: food_dining, amount_usd: 60.0, is_fraud: 0}
+          - {category: food_dining, amount_usd: 80.0, is_fraud: 1}
+          - {category: food_dining, amount_usd: 20.0, is_fraud: 0}
+          - {category: food_dining, amount_usd: 50.0, is_fraud: 0}
+          - {category: gas_transport, amount_usd: 30.0, is_fraud: 1}
+          - {category: gas_transport, amount_usd: 90.0, is_fraud: 1}
+          - {category: gas_transport, amount_usd: 30.0, is_fraud: 0}
+    expect:
+      rows:
+        - {category: food_dining, total_transactions: 5, fraud_transactions: 1, fraud_rate: 20.0, total_amount: 250.0, fraud_amount: 80.0}
+        - {category: gas_transport, total_transactions: 3, fraud_transactions: 2, fraud_rate: 66.67, total_amount: 150.0, fraud_amount: 120.0}
+
+  - name: test_fraud_by_state_metrics
+    description: Проверяет fraud_rate, уникальных клиентов и мерчантов и суммы по штату.
+    model: mart_fraud_by_state
+    given:
+      - input: ref('stg_transactions')
+        rows:
+          - {state_code: CA, customer_id: c1, merchant_name: m1, amount_usd: 25.0, is_fraud: 0}
+          - {state_code: CA, customer_id: c2, merchant_name: m1, amount_usd: 75.0, is_fraud: 1}
+          - {state_code: CA, customer_id: c1, merchant_name: m2, amount_usd: 100.0, is_fraud: 0}
+          - {state_code: CA, customer_id: c3, merchant_name: m3, amount_usd: 50.0, is_fraud: 0}
+    expect:
+      rows:
+        - {state_code: CA, total_transactions: 4, fraud_transactions: 1, fraud_rate: 25.0, unique_customers: 3, unique_merchants: 3, total_amount: 250.0, fraud_amount: 75.0}
+
+  - name: test_customer_risk_levels
+    description: Проверяет агрегаты клиента и крайние уровни риска.
+    model: mart_customer_risk_profile
+    given:
+      - input: ref('stg_transactions')
+        rows:
+          - {customer_id: alpha, amount_usd: 30.0, is_fraud: 0}
+          - {customer_id: alpha, amount_usd: 45.0, is_fraud: 0}
+          - {customer_id: alpha, amount_usd: 15.0, is_fraud: 0}
+          - {customer_id: beta, amount_usd: 80.0, is_fraud: 1}
+          - {customer_id: beta, amount_usd: 20.0, is_fraud: 0}
+          - {customer_id: beta, amount_usd: 40.0, is_fraud: 0}
+          - {customer_id: beta, amount_usd: 60.0, is_fraud: 0}
+    expect:
+      rows:
+        - {customer_id: alpha, total_transactions: 3, fraud_transactions: 0, fraud_rate: 0.0, avg_amount: 30.0, risk_level: LOW}
+        - {customer_id: beta, total_transactions: 4, fraud_transactions: 1, fraud_rate: 25.0, avg_amount: 50.0, risk_level: HIGH}
+
+  - name: test_hourly_fraud_pattern_groups_by_day_and_hour
+    description: Проверяет разбивку по дням и часам и флаг окна с fraud_rate вдвое выше общего 20%.
+    model: mart_hourly_fraud_pattern
+    given:
+      - input: ref('stg_transactions')
+        rows:
+          - {day_of_week: 6, transaction_hour: 3, is_fraud: 1}
+          - {day_of_week: 6, transaction_hour: 3, is_fraud: 1}
+          - {day_of_week: 6, transaction_hour: 3, is_fraud: 0}
+          - {day_of_week: 5, transaction_hour: 14, is_fraud: 0}
+          - {day_of_week: 5, transaction_hour: 14, is_fraud: 0}
+          - {day_of_week: 5, transaction_hour: 14, is_fraud: 0}
+          - {day_of_week: 5, transaction_hour: 14, is_fraud: 0}
+          - {day_of_week: 5, transaction_hour: 14, is_fraud: 0}
+          - {day_of_week: 5, transaction_hour: 14, is_fraud: 0}
+          - {day_of_week: 5, transaction_hour: 14, is_fraud: 0}
+    expect:
+      rows:
+        - {day_of_week: 5, transaction_hour: 14, total_transactions: 7, fraud_transactions: 0, fraud_rate: 0.0, is_high_risk_window: 0}
+        - {day_of_week: 6, transaction_hour: 3, total_transactions: 3, fraud_transactions: 2, fraud_rate: 66.67, is_high_risk_window: 1}
+
+  - name: test_merchant_analytics_metrics_and_flag
+    description: Проверяет оборот, fraud_rate мерчанта и флаг подозрительности.
+    model: mart_merchant_analytics
+    overrides:
+      vars:
+        suspicious_merchant_min_transactions: 4
+    given:
+      - input: ref('stg_transactions')
+        rows: &merchant_rows
+          - {merchant_name: Shop, amount_usd: 15.0, is_fraud: 0}
+          - {merchant_name: Shop, amount_usd: 25.0, is_fraud: 1}
+          - {merchant_name: Shop, amount_usd: 35.0, is_fraud: 0}
+          - {merchant_name: Shop, amount_usd: 45.0, is_fraud: 0}
+          - {merchant_name: Store, amount_usd: 30.0, is_fraud: 0}
+          - {merchant_name: Store, amount_usd: 30.0, is_fraud: 0}
+          - {merchant_name: Store, amount_usd: 30.0, is_fraud: 0}
+          - {merchant_name: Store, amount_usd: 30.0, is_fraud: 0}
+          - {merchant_name: Store, amount_usd: 30.0, is_fraud: 0}
+          - {merchant_name: Store, amount_usd: 30.0, is_fraud: 0}
+    expect:
+      rows:
+        - {merchant_name: Shop, total_transactions: 4, fraud_transactions: 1, fraud_rate: 25.0, total_amount: 120.0, is_suspicious: 1}
+        - {merchant_name: Store, total_transactions: 6, fraud_transactions: 0, fraud_rate: 0.0, total_amount: 180.0, is_suspicious: 0}
+
+  - name: test_merchant_below_min_volume_is_not_suspicious
+    description: Проверяет, что мерчант с малым числом транзакций не получает флаг даже при высоком fraud_rate.
+    model: mart_merchant_analytics
+    given:
+      - input: ref('stg_transactions')
+        rows: *merchant_rows
+    expect:
+      rows:
+        - {merchant_name: Shop, is_suspicious: 0}
+        - {merchant_name: Store, is_suspicious: 0}
