@@ -1,0 +1,137 @@
+version: 2
+
+models:
+  - name: stg_transactions
+    description: |
+      Очистка и нормализация сырых данных.
+
+      - Приведение типов
+      - Добавление вычисляемых полей (сегментация суммы через макрос `amount_bucket`)
+    data_tests:
+      - dbt_expectations.expect_table_row_count_to_equal_other_table:
+          arguments:
+            compare_model: source('transactions_db', 'transactions')
+    columns:
+      - name: transaction_id
+        description: Суррогатный ключ транзакции, в источнике идентификатора нет
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Суррогатный ключ клиента из имени, фамилии и координат клиента
+        data_tests:
+          - not_null
+      - name: transaction_time
+        description: Время транзакции
+        data_tests:
+          - not_null
+      - name: transaction_date
+        description: Дата транзакции, вычисляемое поле
+      - name: transaction_hour
+        description: Час транзакции (0-23), вычисляемое поле
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 23
+      - name: day_of_week
+        description: День недели по ISO (понедельник равен 1), вычисляемое поле через `dbt_date`
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 7
+      - name: day_name
+        description: Название дня недели, вычисляемое поле через `dbt_date`
+      - name: merchant_name
+        description: Мерчант без технического префикса `fraud_`, он есть у всех строк и не означает мошенничество
+        data_tests:
+          - not_null
+      - name: category
+        description: Категория (14 значений)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_distinct_count_to_equal:
+              arguments:
+                value: 14
+      - name: amount_usd
+        description: Сумма, приведена к Float64
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+      - name: amount_bucket
+        description: Сегментация суммы через макрос `amount_bucket`
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [small, medium, large, very_large]
+      - name: is_large
+        description: Флаг крупной транзакции, 1 если сумма не меньше `large_amount_threshold`
+      - name: first_name
+        description: Имя клиента
+      - name: last_name
+        description: Фамилия клиента
+      - name: gender
+        description: Пол (M/F)
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [M, F]
+      - name: state_code
+        description: Штат США (50 штатов)
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('states')
+                field: state_code
+      - name: customer_lat
+        description: Координаты клиента, широта
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -90
+                max_value: 90
+      - name: customer_lon
+        description: Координаты клиента, долгота
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -180
+                max_value: 180
+      - name: merchant_lat
+        description: Координаты мерчанта, широта
+      - name: merchant_lon
+        description: Координаты мерчанта, долгота
+      - name: is_fraud
+        description: Признак фрода (0/1)
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false
+
+unit_tests:
+  - name: test_stg_transactions_normalizes_and_buckets_amounts
+    description: Проверяет границы сегментов суммы, флаг is_large, префикс мерчанта и календарные поля.
+    model: stg_transactions
+    given:
+      - input: source('transactions_db', 'transactions')
+        rows:
+          - {transaction_time: "2020-06-15 08:15:00", merch: "fraud_Kirlin and Sons", cat_id: grocery_pos, amount: 12.30, us_state: TX, gender: F, target: 0}
+          - {transaction_time: "2020-06-15 08:15:00", merch: "fraud_Rippin, Kub and Mann", cat_id: grocery_pos, amount: 50.00, us_state: TX, gender: F, target: 0}
+          - {transaction_time: "2020-06-15 08:15:00", merch: "fraud_Lind-Buckridge", cat_id: grocery_pos, amount: 199.99, us_state: TX, gender: F, target: 0}
+          - {transaction_time: "2020-06-15 08:15:00", merch: "fraud_Heller, Gutmann and Zieme", cat_id: grocery_pos, amount: 200.00, us_state: TX, gender: F, target: 0}
+          - {transaction_time: "2020-06-15 08:15:00", merch: "fraud_Schumm PLC", cat_id: grocery_pos, amount: 999.99, us_state: TX, gender: F, target: 0}
+          - {transaction_time: "2020-06-21 21:40:00", merch: "fraud_Kutch, Hermiston and Farrell", cat_id: grocery_pos, amount: 1000.00, us_state: TX, gender: F, target: 1}
+    expect:
+      rows:
+        - {amount_usd: 12.3, merchant_name: "Kirlin and Sons", amount_bucket: small, is_large: 0, transaction_hour: 8, day_of_week: 1, day_name: Monday, is_fraud: 0}
+        - {amount_usd: 50.0, merchant_name: "Rippin, Kub and Mann", amount_bucket: medium, is_large: 0, transaction_hour: 8, day_of_week: 1, day_name: Monday, is_fraud: 0}
+        - {amount_usd: 199.99, merchant_name: "Lind-Buckridge", amount_bucket: medium, is_large: 0, transaction_hour: 8, day_of_week: 1, day_name: Monday, is_fraud: 0}
+        - {amount_usd: 200.0, merchant_name: "Heller, Gutmann and Zieme", amount_bucket: large, is_large: 1, transaction_hour: 8, day_of_week: 1, day_name: Monday, is_fraud: 0}
+        - {amount_usd: 999.99, merchant_name: "Schumm PLC", amount_bucket: large, is_large: 1, transaction_hour: 8, day_of_week: 1, day_name: Monday, is_fraud: 0}
+        - {amount_usd: 1000.0, merchant_name: "Kutch, Hermiston and Farrell", amount_bucket: very_large, is_large: 1, transaction_hour: 21, day_of_week: 7, day_name: Sunday, is_fraud: 1}

@@ -1,0 +1,37 @@
+name: fraud_analytics
+version: "1.0.0"
+config-version: 2
+profile: fraud_analytics
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+target-path: target
+clean-targets: [target, dbt_packages]
+
+vars:
+  large_amount_threshold: 200
+  very_large_amount_threshold: 1000
+  small_amount_threshold: 50
+  customer_high_risk_fraud_rate: 5
+  customer_medium_risk_fraud_rate: 1
+  high_risk_window_multiplier: 2
+  suspicious_merchant_multiplier: 2
+  suspicious_merchant_min_transactions: 100
+
+models:
+  fraud_analytics:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
+      +engine: MergeTree()
+
+seeds:
+  fraud_analytics:
+    states:
+      +column_types:
+        state_code: String
+        state_name: String
+        region: String

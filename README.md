@@ -51,6 +51,8 @@ KAFKA_BROKERS=localhost:9095 uv run python producer/main.py --file data/train.cs
 ├── results/                    # результаты запроса в CSV
 ├── scripts/run_query.sh        # выполнение запроса и выгрузка в CSV
 ├── data/                       # исходные CSV (Git LFS)
+├── dbt/                        # dbt-проект поверх optimized.transactions
+├── docs/                       # артефакты dbt для PR: DAG, лог тестов
 ├── docker-compose.yaml
 ├── pyproject.toml / uv.lock    # окружение uv
 └── .env.example                # шаблон переменных окружения
